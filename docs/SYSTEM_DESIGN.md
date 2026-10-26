@@ -63,9 +63,30 @@ flowchart LR
 erDiagram
   DEALERSHIP ||--o{ VEHICLE : stocks
   VEHICLE ||--o{ VEHICLE_ACTION : "has history"
-  DEALERSHIP { string id string name string city }
-  VEHICLE { string id string vin string make string model int year int mileage int price date stockedAt string dealershipId }
-  VEHICLE_ACTION { string id string vehicleId enum status string note string author datetime createdAt }
+  DEALERSHIP {
+    string id PK
+    string name
+    string city
+  }
+  VEHICLE {
+    string id PK
+    string dealershipId FK
+    string vin
+    string make
+    string model
+    int year
+    int mileage
+    int price
+    date stockedAt
+  }
+  VEHICLE_ACTION {
+    string id PK
+    string vehicleId FK
+    string status
+    string note
+    string author
+    datetime createdAt
+  }
 ```
 
 The action `status` is one of `PRICE_REDUCTION_PLANNED`, `PROMOTION_PLANNED`, `TRANSFER_REQUESTED`, `SENT_TO_AUCTION`, `UNDER_REVIEW` or `SOLD`.
@@ -85,23 +106,24 @@ The server computes `daysInStock`, `isAging`, `ageBand`, `latestAction` and `sug
 sequenceDiagram
   actor M as Manager
   participant P as Action panel
-  participant S as Store
   participant API as API client
   participant H as Mock handler
   participant DB as localStorage DB
-  M->>P: choose status + note, Save
-  P->>S: logAction(vehicleId, input)
-  S->>API: POST /api/vehicles/{id}/actions
-  API->>H: request (x-request-id)
-  H->>H: validate (status enum, vehicle exists, is aging)
+  participant S as Store
+  M->>P: choose status, note, name - Save
+  P->>API: createAction(vehicleId, input)
+  API->>H: POST /api/vehicles/{id}/actions (x-request-id)
+  H->>H: validate (status enum, author, vehicle exists, is aging)
   alt valid
-    H->>DB: append action
+    H->>DB: append action (history kept)
     H-->>API: 201 VehicleAction
-    API-->>S: action
-    S->>S: refresh history, list row, summary
+    API-->>P: action
+    P->>P: prepend to history
+    P->>S: emit saved, store.load()
+    S->>API: GET vehicles page + summary (parallel)
   else invalid
-    H-->>API: 422 { error }
-    API-->>P: ApiError -> inline message
+    H-->>API: 422 error
+    API-->>P: ApiError, inline message
   end
 ```
 
@@ -149,4 +171,12 @@ sequenceDiagram
 
 ## 9. How GenAI was used in the design phase
 
-_To be completed at the end with what actually happened._
+The design was produced with **Claude Code** (Claude Opus 5.5). I set the direction, and the AI did the analysis and drafting.
+
+1. **Choosing the scenario.** I used an AI assistant to compare the four scenarios against my strengths (Vue, dashboards). We picked B and listed what would add depth to a lighter scenario: a written API contract, test-first domain rules, three test layers and an action *history* instead of a single status.
+2. **Reading the requirements.** The agent read the brief and pointed out requirements that are easy to miss: age is a *required* filter, the System Design Document needs six specific sections, the video has five required parts, and the brief says AI verification is the "primary evaluation criterion".
+3. **Clarifying instead of guessing.** I told the agent to ask rather than assume. It asked four questions (repo visibility, hosting, CSS approach, document format) and proposed assumptions for the rest. I accepted or adjusted each one, and they became table §1 (A1–A8).
+4. **Contract before code.** The AI drafted this document and `openapi.yaml` before any UI existed, so the UI was built against the contract. A linter (`redocly lint`) was then run on the spec. It found two real errors, where unquoted descriptions containing commas broke the YAML structure, plus missing security and 4xx definitions. These were fixed, so the contract is not just AI text that has never been checked.
+5. **Design checks.** I used a UI/UX design-guidance tool for the visual direction ("data-dense dashboard": blue data colour and an amber accent for aging stock). I rejected its suggested *landing-page* layout (hero section, client logos, "Contact Sales") because it does not fit an internal tool.
+
+What I owned: the scope, the assumptions, the business rules (the >90-day boundary, the suggestion tiers, and that only aging vehicles can have actions) and the decision to keep filtering on the server for scalability.
