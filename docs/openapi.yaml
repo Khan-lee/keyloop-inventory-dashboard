@@ -1,0 +1,204 @@
+openapi: 3.1.0
+info:
+  title: Inventory Dashboard API
+  version: 1.0.0
+  description: |
+    Contract between the Intelligent Inventory Dashboard (frontend) and the inventory service.
+    The frontend ships with a Mock Service Worker implementation of this contract
+    (`src/mocks/handlers.ts`, verified by `src/mocks/handlers.test.ts`).
+
+    Business rules (implemented server-side, see `src/domain`):
+    - `daysInStock` = whole UTC calendar days from `stockedAt` to today.
+    - Aging stock = `daysInStock > 90` (day 90 is not aging, day 91 is).
+    - A future or invalid `stockedAt` gives `daysInStock: null` and `dataIssue: true`.
+servers:
+  - url: /api
+security:
+  - bearerAuth: []
+paths:
+  /dealerships:
+    get:
+      summary: List dealerships the user can see
+      operationId: listDealerships
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Dealership' } }
+        '401': { $ref: '#/components/responses/Error' }
+  /dealerships/{dealershipId}/vehicles:
+    get:
+      summary: Filtered, paginated vehicle stock (oldest first)
+      description: Filtering, sorting and pagination run on the server so the client only holds one page.
+      operationId: listVehicles
+      parameters:
+        - $ref: '#/components/parameters/DealershipId'
+        - { name: make, in: query, schema: { type: string }, description: Case-insensitive exact match }
+        - { name: model, in: query, schema: { type: string }, description: Case-insensitive exact match }
+        - { name: ageBand, in: query, schema: { $ref: '#/components/schemas/AgeBand' } }
+        - { name: agingOnly, in: query, schema: { type: boolean, default: false } }
+        - { name: q, in: query, schema: { type: string }, description: Substring search over VIN and model }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: One page of vehicles
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehiclePage' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /dealerships/{dealershipId}/summary:
+    get:
+      summary: KPI counts and age-band distribution for a dealership
+      operationId: getSummary
+      parameters:
+        - $ref: '#/components/parameters/DealershipId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventorySummary' }
+        '404': { $ref: '#/components/responses/Error' }
+  /vehicles/{vehicleId}/actions:
+    parameters:
+      - { name: vehicleId, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Full action history for a vehicle, newest first
+      operationId: listActions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/VehicleAction' } }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Append a status / proposed action for an aging vehicle
+      description: The log is append-only; the latest entry is the vehicle's current status.
+      operationId: createAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewVehicleAction' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleAction' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422':
+          description: Validation failed (`VALIDATION_ERROR`) or the vehicle is not aging (`NOT_AGING`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Issued by the dealer platform's identity provider (out of scope for this exercise; the mock ignores it).
+  parameters:
+    DealershipId:
+      { name: dealershipId, in: path, required: true, schema: { type: string } }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    AgeBand:
+      type: string
+      enum: ['0-30', '31-60', '61-90', '90+']
+    ActionStatus:
+      type: string
+      enum: [PRICE_REDUCTION_PLANNED, PROMOTION_PLANNED, TRANSFER_REQUESTED, SENT_TO_AUCTION, UNDER_REVIEW, SOLD]
+    Dealership:
+      type: object
+      required: [id, name, city]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        city: { type: string }
+    Vehicle:
+      type: object
+      required: [id, dealershipId, vin, make, model, year, mileage, price, stockedAt, daysInStock, isAging, ageBand, dataIssue, latestAction, suggestedAction]
+      properties:
+        id: { type: string }
+        dealershipId: { type: string }
+        vin: { type: string, minLength: 17, maxLength: 17 }
+        make: { type: string }
+        model: { type: string }
+        year: { type: integer }
+        mileage: { type: integer, description: Miles }
+        price: { type: integer, description: GBP }
+        stockedAt: { type: string, description: 'Arrival date at the dealership, YYYY-MM-DD' }
+        daysInStock: { type: [integer, 'null'] }
+        isAging: { type: boolean }
+        ageBand: { oneOf: [{ $ref: '#/components/schemas/AgeBand' }, { type: 'null' }] }
+        dataIssue: { type: boolean }
+        latestAction: { oneOf: [{ $ref: '#/components/schemas/VehicleAction' }, { type: 'null' }] }
+        suggestedAction: { type: [string, 'null'] }
+    VehiclePage:
+      type: object
+      required: [items, page, pageSize, total, facets]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Vehicle' } }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer, description: 'Count after filters, before paging' }
+        facets:
+          type: object
+          required: [makes, models]
+          properties:
+            makes: { type: array, items: { type: string } }
+            models: { type: array, items: { type: string }, description: 'Models for the selected make, or all' }
+    InventorySummary:
+      type: object
+      required: [total, aging, agingRate, agingWithoutAction, dataIssues, bands]
+      properties:
+        total: { type: integer }
+        aging: { type: integer }
+        agingRate: { type: number, minimum: 0, maximum: 1 }
+        agingWithoutAction: { type: integer }
+        dataIssues: { type: integer }
+        bands:
+          type: object
+          required: ['0-30', '31-60', '61-90', '90+']
+          properties:
+            '0-30': { type: integer }
+            '31-60': { type: integer }
+            '61-90': { type: integer }
+            '90+': { type: integer }
+    VehicleAction:
+      type: object
+      required: [id, vehicleId, status, note, author, createdAt]
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        status: { $ref: '#/components/schemas/ActionStatus' }
+        note: { type: string, maxLength: 500 }
+        author: { type: string, maxLength: 80 }
+        createdAt: { type: string, format: date-time }
+    NewVehicleAction:
+      type: object
+      required: [status, author]
+      properties:
+        status: { $ref: '#/components/schemas/ActionStatus' }
+        note: { type: string, maxLength: 500 }
+        author: { type: string, minLength: 1, maxLength: 80 }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [VALIDATION_ERROR, NOT_AGING, NOT_FOUND, BAD_REQUEST, UNAUTHORIZED, INTERNAL] }
+            message: { type: string }
