@@ -4,7 +4,7 @@ Keyloop technical assessment, **Scenario B**: a dashboard that shows dealership 
 
 **Implemented layer:** Frontend (Vue 3 + TypeScript). The backend is mocked with Mock Service Worker against a written contract ([docs/openapi.yaml](docs/openapi.yaml)).
 
-- **Live demo:** _link added after deployment_
+- **Live demo:** https://keyloop-inventory-dashboard.vercel.app (try [`?mock=error`](https://keyloop-inventory-dashboard.vercel.app/?mock=error) for the error state)
 - **System design:** [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) (architecture, data flow, technology choices, observability, assumptions)
 
 ## What it does
