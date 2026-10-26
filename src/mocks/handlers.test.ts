@@ -9,7 +9,7 @@ const BASE = 'http://localhost/api'
 let db: Db
 const server = setupServer()
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 beforeEach(() => {
   localStorage.clear()
   db = createDb(localStorage, todayIso())
@@ -87,7 +87,7 @@ describe('POST /vehicles/:id/actions', () => {
     [{ status: 'SOLD', author: '   ' }, 'blank author'],
     [{ status: 'SOLD', author: 'Sam', note: 'x'.repeat(501) }, 'note too long'],
     ['not an object', 'wrong body type'],
-  ])('rejects %j with 422 (%s)', async (body) => {
+  ])('rejects %j with 422 (%s)', async (body, _reason) => {
     const res = await post(agingVehicle().id, body)
     expect(res.status).toBe(422)
     expect((await res.json()).error.code).toBe('VALIDATION_ERROR')

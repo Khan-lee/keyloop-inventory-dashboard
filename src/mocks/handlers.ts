@@ -28,7 +28,8 @@ export function createHandlers(db: Db, { latencyMs = 250, mode = null }: Options
   return [
     // Runs first for every API call: latency + fault injection, then falls through.
     http.all('*/api/*', async () => {
-      await delay(mode === 'slow' ? 2500 : latencyMs)
+      const ms = mode === 'slow' ? 2500 : latencyMs
+      if (ms) await delay(ms)
       if (mode === 'error') return fail(500, 'INTERNAL', 'Simulated server error')
     }),
 

@@ -12,7 +12,7 @@ export async function startMockBackend() {
   const mode = new URLSearchParams(location.search).get('mock') as MockMode
   const worker = setupWorker(...createHandlers(createDb(localStorage, todayIso()), { mode }))
   await worker.start({
-    onUnhandledRequest: 'bypass',
+    onUnhandledFrame: 'bypass',
     quiet: true,
     serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` },
   })
